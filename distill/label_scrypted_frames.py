@@ -19,6 +19,11 @@ from teacher import BioClipClassifier, MegaDetector, crop_box
 ROOT = Path(__file__).parents[1]
 
 
+def frame_order(path: Path) -> tuple[int, str]:
+    suffix = path.stem.rsplit("-", 1)[-1]
+    return (int(suffix) if suffix.isdigit() else 0, path.name)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Pseudo-label Scrypted NVR event frames")
     parser.add_argument("frames", type=Path)
@@ -46,22 +51,37 @@ def main() -> None:
     detector = MegaDetector(args.megadetector, args.device)
     classifier = BioClipClassifier(species, args.device, ROOT / "work" / "models")
 
-    groups: dict[Path, list[Path]] = defaultdict(list)
+    # Scrypted directories are time buckets, not individual object tracks.
+    groups: dict[tuple[Path, str], list[Path]] = defaultdict(list)
     for path in args.frames.rglob("*.jpg"):
-        groups[path.parent].append(path)
+        if path.stem.isdigit():
+            sequence = "snapshots"
+        elif "-" in path.stem and path.stem.rsplit("-", 1)[1].isdigit():
+            sequence = path.stem.rsplit("-", 1)[0]
+        else:
+            sequence = path.stem  # Standalone crops have no trustworthy temporal order.
+        groups[(path.parent, sequence)].append(path)
 
+    args.output.mkdir(parents=True, exist_ok=True)
+    audit = (args.output / "scrypted-audit.jsonl").open("w")
     written = 0
-    for group_number, (event, paths) in enumerate(sorted(groups.items())):
+    for group_number, ((event, sequence), paths) in enumerate(sorted(groups.items())):
         camera_directory = next((part for part in event.parts if part.startswith("scrypted-") and part.endswith(".events")), "")
         camera_id = camera_directory.removeprefix("scrypted-").removesuffix(".events")
         poultry_camera = camera_id in set(args.poultry_cameras)
         smoother = TemporalSmoother(args.smoothing_alpha, 0.3, 30, args.unknown_threshold)
-        split = "val" if group_number % 5 == 0 else "train"
+        split = "val" if int(hashlib.sha256(str(event.relative_to(args.frames)).encode()).hexdigest(), 16) % 5 == 0 else "train"
         image_dir = args.output / "images" / split
         label_dir = args.output / "labels" / split
         image_dir.mkdir(parents=True, exist_ok=True)
         label_dir.mkdir(parents=True, exist_ok=True)
-        for frame_number, source in enumerate(sorted(paths, key=lambda path: (path.stat().st_mtime_ns, path.name))):
+        previous_timestamp = None
+        for frame_number, source in enumerate(sorted(paths, key=frame_order)):
+            if source.stem.isdigit():
+                timestamp = int(source.stem)
+                if previous_timestamp is not None and timestamp - previous_timestamp > 30_000:
+                    smoother = TemporalSmoother(args.smoothing_alpha, 0.3, 30, args.unknown_threshold)
+                previous_timestamp = timestamp
             try:
                 image = Image.open(source).convert("RGB")
             except Exception as error:
@@ -71,6 +91,11 @@ def main() -> None:
             probabilities = classifier.classify([crop_box(image, box) for box, _ in detections])
             if poultry_camera:
                 for scores in probabilities:
+                    # Retain regional mammals/reptiles instead of forcing every animal into poultry.
+                    best_label = max(scores, key=scores.get)
+                    bird_labels = {item.label for item in species if item.iconic_taxon == "Aves"}
+                    if best_label not in bird_labels:
+                        continue
                     total = sum(score for label, score in scores.items() if label in poultry_labels)
                     if total:
                         scores.update(
@@ -81,6 +106,12 @@ def main() -> None:
                 (label_indexes[label], *yolo_box(box, image.width, image.height))
                 for ((box, _), (_, label, _)) in zip(detections, smoothed)
             ]
+            audit.write(json.dumps({
+                "source": str(source.relative_to(args.frames)), "split": split,
+                "boxes": [{"xyxy": box, "label": label, "confidence": confidence}
+                          for ((box, _), (_, label, confidence)) in zip(detections, smoothed)],
+            }) + "\n")
+            audit.flush()
             if not annotations:
                 continue
             relative = source.relative_to(args.frames)
@@ -92,6 +123,7 @@ def main() -> None:
             written += 1
         print(f"Labeled Scrypted event {group_number + 1}/{len(groups)}")
 
+    audit.close()
     write_dataset_yaml(args.output, labels)
     print(f"Added {written} Scrypted frames to {args.output}")
 

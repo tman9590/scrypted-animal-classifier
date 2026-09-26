@@ -95,16 +95,16 @@ def main() -> None:
     failures = []
 
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
-        futures = [
-            executor.submit(download_species, metadata, item, class_index, args.output, args.per_species)
+        futures = {
+            executor.submit(download_species, metadata, item, class_index, args.output, args.per_species): item.label
             for class_index, item in enumerate(species)
-        ]
+        }
         for future in as_completed(futures):
             try:
                 recovered = future.result()
             except Exception as error:
                 failures.append(str(error))
-                print(f"Species request failed (checkpoint retained): {error}")
+                print(f"Species request failed for {futures[future]} (checkpoint retained): {error}")
                 continue
             rows.update({row["file"]: row for row in recovered})
             write_manifest(args.output, list(rows.values()))

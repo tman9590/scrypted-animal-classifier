@@ -5,6 +5,8 @@ import argparse
 import csv
 import json
 import random
+import hashlib
+from collections import defaultdict
 import shutil
 from pathlib import Path
 
@@ -28,6 +30,11 @@ def write_dataset_yaml(output: Path, labels: list[str]) -> None:
     (output / "dataset.yaml").write_text("\n".join(yaml) + "\n")
 
 
+def observation_split(stem: str) -> str:
+    observation = stem.split("-")[0]
+    return "val" if int(hashlib.sha256(observation.encode()).hexdigest(), 16) % 5 == 0 else "train"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Pseudo-label licensed iNaturalist images with MDV6 and BioCLIP 2")
     parser.add_argument("--catalog", type=Path, default=ROOT / "species" / "north-carolina.json")
@@ -42,15 +49,55 @@ def main() -> None:
     args = parser.parse_args()
 
     metadata, species = read_catalog(args.catalog)
-    detector = MegaDetector(args.megadetector, args.device)
-    classifier = BioClipClassifier(species, args.device, ROOT / "work" / "models")
     labels = [item.label for item in species] + ["unknown"]
     unknown_index = len(species)
     rows = list(csv.DictReader((args.source / "attribution.csv").open()))
+    by_photo = defaultdict(list)
+    for row in rows:
+        by_photo[Path(row["file"]).stem.split("-")[-1]].append(row)
+    conflicting_groups = [group for group in by_photo.values() if len({row["class_index"] for row in group}) > 1]
+    conflicts = len(conflicting_groups)
+    # Newly recovered metadata can expose conflicts in an earlier partial pass.
+    # Remove only generated derivatives; the licensed originals remain untouched.
+    for group in conflicting_groups:
+        for row in group:
+            stem = "public-" + Path(row["file"]).stem
+            for split in ("train", "val"):
+                for folder, suffix in (("images", ".jpg"), ("labels", ".txt")):
+                    (args.output / folder / split / (stem + suffix)).unlink(missing_ok=True)
+    rows = [group[0] for group in by_photo.values() if len({row["class_index"] for row in group}) == 1]
+    print(f"Excluded {conflicts} photos with conflicting source taxon assignments")
     random.Random(360).shuffle(rows)
     if args.limit is not None:
         rows = rows[:args.limit]
 
+    args.output.mkdir(parents=True, exist_ok=True)
+    signature = {
+        "catalog_sha256": hashlib.sha256(args.catalog.read_bytes()).hexdigest(),
+        "megadetector_sha256": hashlib.sha256(args.megadetector.read_bytes()).hexdigest(),
+        "detection_threshold": args.detection_threshold,
+        "unknown_threshold": args.unknown_threshold,
+        "pipeline_version": 3,
+    }
+    run_path = args.output / "public-run.json"
+    if run_path.exists() and json.loads(run_path.read_text()) != signature:
+        raise ValueError("Teacher settings changed; choose a fresh output directory")
+    run_path.write_text(json.dumps(signature, indent=2) + "\n")
+    audit_path = args.output / "public-audit.jsonl"
+    completed = set()
+    if audit_path.exists():
+        for line in audit_path.read_text().splitlines():
+            record = json.loads(line)
+            if record.get("status") == "ok":
+                completed.add(record["source"])
+    rows = [row for row in rows if row["file"] not in completed]
+    print(f"Resuming with {len(rows)} public images; {len(completed)} already processed")
+    write_dataset_yaml(args.output, labels)
+    if not rows:
+        return
+    detector = MegaDetector(args.megadetector, args.device)
+    classifier = BioClipClassifier(species, args.device, ROOT / "work" / "models")
+    audit = audit_path.open("a")
     for batch_start in range(0, len(rows), args.batch_size):
         batch = []
         for row_number, row in enumerate(rows[batch_start : batch_start + args.batch_size], batch_start):
@@ -63,12 +110,14 @@ def main() -> None:
         crops = [crop_box(image, box) for (_, _, _, image), boxes in zip(batch, detections) for box, _ in boxes]
         predictions = iter(classifier.classify(crops))
         for (row_number, row, source, image), boxes in zip(batch, detections):
-            split = "val" if row_number % 5 == 0 else "train"
+            # Keep every photo from an observation in the same stable partition.
+            split = observation_split(source.stem)
             image_dir = args.output / "images" / split
             label_dir = args.output / "labels" / split
             image_dir.mkdir(parents=True, exist_ok=True)
             label_dir.mkdir(parents=True, exist_ok=True)
             annotations = []
+            details = []
             for box, _ in boxes:
                 probabilities = next(predictions)
                 predicted_label, confidence = max(probabilities.items(), key=lambda item: item[1])
@@ -79,14 +128,18 @@ def main() -> None:
                     else unknown_index
                 )
                 annotations.append((class_index, *yolo_box(box, image.width, image.height)))
-            if not annotations:
-                continue
-            shutil.copy2(source, image_dir / source.name)
-            (label_dir / f"{source.stem}.txt").write_text(
-                "".join(f"{index} {x:.8f} {y:.8f} {w:.8f} {h:.8f}\n" for index, x, y, w, h in annotations)
-            )
+                details.append({"xyxy": box, "label": labels[class_index], "teacher_label": predicted_label, "confidence": confidence})
+            stem = "public-" + source.stem
+            if annotations:
+                shutil.copy2(source, image_dir / f"{stem}.jpg")
+                (label_dir / f"{stem}.txt").write_text(
+                    "".join(f"{index} {x:.8f} {y:.8f} {w:.8f} {h:.8f}\n" for index, x, y, w, h in annotations)
+                )
+            audit.write(json.dumps({"source": row["file"], "status": "ok", "split": split, "boxes": details}) + "\n")
+            audit.flush()
         print(f"Labeled {min(batch_start + args.batch_size, len(rows))}/{len(rows)} public images")
 
+    audit.close()
     write_dataset_yaml(args.output, labels)
     print(f"Wrote training dataset to {args.output}")
 

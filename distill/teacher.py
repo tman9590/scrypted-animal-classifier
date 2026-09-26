@@ -61,7 +61,7 @@ class BioClipClassifier:
             cache_dir=str(cache_dir) if cache_dir else None,
         )
         self.model = self.model.to(device).eval()
-        tokenizer = open_clip.get_tokenizer("hf-hub:imageomics/bioclip-2")
+        tokenizer = open_clip.get_tokenizer("hf-hub:imageomics/bioclip-2", cache_dir=str(cache_dir) if cache_dir else None)
         prompts = [prompt for item in species for prompt in item.prompts]
         with torch.inference_mode():
             features = self.model.encode_text(tokenizer(prompts).to(device))

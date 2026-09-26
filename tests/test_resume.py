@@ -14,6 +14,9 @@ sys.path.insert(0, str(Path(__file__).parents[1] / 'distill'))
 from catalog import Species
 from download_inaturalist import download_species, write_manifest
 from teacher import MegaDetector
+from label_images import observation_split
+from label_scrypted_frames import frame_order
+from validate_exports import validate_output
 
 
 class ResumeTests(unittest.TestCase):
@@ -35,6 +38,24 @@ class ResumeTests(unittest.TestCase):
             self.assertEqual(saved[0]['attribution'], 'Photographer')
             self.assertEqual(saved[0]['license'], 'cc-by')
             self.assertFalse(list(root.glob('*.tmp')))
+
+    def test_observation_photos_cannot_cross_splits(self):
+        for observation in range(100):
+            self.assertEqual(observation_split(f'{observation}-11'), observation_split(f'{observation}-22'))
+        self.assertEqual({observation_split(f'{i}-11') for i in range(100)}, {'train', 'val'})
+
+    def test_track_frame_numbers_sort_numerically(self):
+        paths = [Path(name) for name in ['abcd-100.jpg', 'abcd-2.jpg', 'abcd-11.jpg']]
+        self.assertEqual([p.name for p in sorted(paths, key=frame_order)], ['abcd-2.jpg', 'abcd-11.jpg', 'abcd-100.jpg'])
+
+    def test_export_contract_rejects_nms_output_and_nonfinite_scores(self):
+        valid = np.zeros((1, 534, 8400), dtype=np.float32)
+        validate_output(valid, 530, 640)
+        with self.assertRaises(ValueError):
+            validate_output(np.zeros((1, 300, 6)), 530, 640)
+        valid[0, 4, 0] = np.nan
+        with self.assertRaises(ValueError):
+            validate_output(valid, 530, 640)
 
     def test_detector_converts_pil_rgb_to_ultralytics_bgr(self):
         detector = MegaDetector.__new__(MegaDetector)

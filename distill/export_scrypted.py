@@ -23,7 +23,7 @@ def export_backend(model: YOLO, backend: str, labels: list[str], image_size: int
     output = ROOT / "models" / backend
     output.mkdir(parents=True, exist_ok=True)
     formats = {"onnx": "onnx", "openvino": "openvino", "coreml": "coreml", "ncnn": "ncnn"}
-    exported = Path(model.export(format=formats[backend], imgsz=image_size, dynamic=False, simplify=True))
+    exported = Path(model.export(format=formats[backend], imgsz=image_size, dynamic=False, simplify=True, nms=False, batch=1))
 
     if backend == "onnx":
         destination = output / "north-carolina-wildlife.onnx"
@@ -60,6 +60,9 @@ def main() -> None:
     metadata, _ = read_catalog(args.catalog)
     labels = metadata["labels"]
     model = YOLO(args.weights)
+    trained_labels = [model.names[index] for index in range(len(model.names))]
+    if trained_labels != labels:
+        raise ValueError("Checkpoint class order does not match the catalog; refusing mislabeled export")
     for backend in args.backends:
         print(f"Exporting {backend}")
         export_backend(model, backend, labels, args.image_size)
