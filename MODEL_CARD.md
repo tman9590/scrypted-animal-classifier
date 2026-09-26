@@ -1,59 +1,63 @@
-# Model card: Scrypted Animal Classifier
+# Model card: North Carolina Species Detector
 
-## Intended use
+## Intended behavior
 
-This model assigns a single animal-centered image crop to one of 27 broad
-animal groups or `not_animal`. It is intended as a second-stage classifier for
-Scrypted camera events. It is not intended to locate animals, produce bounding
-boxes, identify individual pets, or support scientific population counts.
+The deployable model is a single-stage object detector for Scrypted NVR. Each
+box receives one of 529 North Carolina wildlife and poultry labels or
+`unknown`. Labels include the scientific name to prevent ambiguity between
+similar common names.
 
-## Architecture and data
+## Teacher and student
 
-- Backbone: torchvision MobileNet V3 Small with public pretrained weights.
-- Source label space: ImageNet-1K's 1,000 classes.
-- Input: one normalized 224×224 RGB image.
-- Output: 28 log probabilities. Scrypted applies softmax to recover the group
-  probabilities.
-- Aggregation: each ImageNet class belongs to exactly one output group. Classes
-  outside the animal groups are summed into `not_animal`.
+Pseudo-labels are produced by MegaDetector V6 compact and BioCLIP 2. For camera
+clips, detections are associated by bounding-box overlap and BioCLIP
+probabilities are smoothed with an exponential moving average. A track becomes
+`unknown` below the configured confidence threshold. These annotations train a
+YOLO11 Small student that is exported to the tensor layouts consumed by
+Scrypted's existing custom-object-detection parser.
 
-No additional camera footage, private imagery, or user data was used to create
-the model.
+The deployed student does not execute BioCLIP or query iNaturalist. Its class
+list is fixed at training time. Rebuilding the catalog and retraining are
+required to change regions or add species.
 
-## Validation
+## Geographic and taxonomic scope
 
-The checked-in exports are compared against the PyTorch reference on a seeded
-input. Maximum observed probability differences during release validation:
+The vocabulary is derived from research-grade observations within iNaturalist
+place 30, North Carolina, USA. It contains terrestrial vertebrates in
+Mammalia, Aves, Reptilia, and Amphibia with at least 20 observations, plus an
+explicit poultry list. Marine fish, invertebrates, and taxa with sparse North
+Carolina evidence are outside the default scope.
 
-| Backend | Maximum difference |
-|---|---:|
-| ONNX Runtime | 0.000001 |
-| OpenVINO | 0.028401 |
-| CoreML | 0.006642 |
-| NCNN FP16 | 0.038963 |
+Presence in the list means that a taxon has been observed in North Carolina. It
+does not mean that the species is plausible at every address, habitat, season,
+or time of day in the state.
 
-Two public smoke-test images were also checked: the PyTorch Hub dog image
-classified as `dog` with 0.9866 probability, and the repository's American
-goldfinch image classified as `bird` with 0.9993 probability. These examples
-are sanity checks, not an accuracy benchmark.
+## Confidence and unknown
+
+The BioCLIP threshold controls pseudo-label creation, not a calibrated
+probability that a species is present. The student learns `unknown` from animal
+boxes that the teacher cannot classify confidently. Its runtime score is also
+not a calibrated biological probability.
 
 ## Limitations
 
-- The model inherits the biases and gaps of ImageNet-1K.
-- ImageNet-1K has no dedicated raccoon class and no general deer class.
-  Raccoons may resemble badgers or pandas; deer may resemble antelope or other
-  hoofed animals.
-- Broad groups deliberately trade species detail for stability. The specialist
-  legacy bird model is more suitable when bird species are the only target.
-- Infrared night images, severe motion blur, partial animals, tiny subjects,
-  unusual viewpoints, and multiple animals in one crop can lower confidence or
-  produce the wrong group.
-- `not_animal` is a necessary rejection class, but a threshold should still be
-  tuned on representative footage.
+- Species with similar appearance, hybrids, juveniles, domestic breeds, and
+  partial views are likely confusion pairs.
+- Night vision, small subjects, motion blur, rain, backlighting, and animals at
+  the frame edge reduce accuracy.
+- iNaturalist and BioCLIP training data are long-tailed. Frequently photographed
+  birds and mammals have more evidence than secretive species.
+- A class list with hundreds of species increases fine-grained coverage but
+  requires substantial examples per class. Sparse classes should remain
+  experimental until validated on held-out footage.
+- IoU association can switch identities when animals cross. Smoothing may also
+  delay a correct label after an early error.
+- The model is for notification and search assistance. It is not evidence for
+  a scientific record, wildlife-management decision, or safety-critical action.
 
-## Operational guidance
+## Required validation
 
-Start with a 0.65 confidence threshold. Review false positives and missed
-events from each physical camera before using a label in automations. Do not
-use the output for safety-critical decisions.
-
+Measure per-class precision and recall on clips excluded from training. Report
+macro averages so common species do not hide failures on rare ones. Maintain a
+confusion matrix, unknown recall, day/night slices, and separate results for
+wild birds, poultry, mammals, reptiles, and amphibians.

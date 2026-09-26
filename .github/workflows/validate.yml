@@ -1,4 +1,4 @@
-name: Validate animal classifier
+name: Validate species model pipeline
 
 on:
   push:
@@ -12,19 +12,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: pip
-      - run: pip install torch==2.8.0 torchvision==0.23.0 onnx==1.19.1 onnxruntime==1.23.2
+      - run: pip install Pillow==11.3.0 numpy==2.2.6
       - run: python -m unittest discover -s tests -v
-      - name: Validate ONNX model
+      - run: python -m compileall -q distill tests
+      - name: Validate Scrypted configs
         run: |
           python - <<'PY'
-          import onnx
-          import onnxruntime
-          import numpy as np
-          path = "models/onnx/animal-mobilenet-v3-small.onnx"
-          onnx.checker.check_model(onnx.load(path))
-          session = onnxruntime.InferenceSession(path, providers=["CPUExecutionProvider"])
-          output = session.run(None, {session.get_inputs()[0].name: np.zeros((1, 3, 224, 224), np.float32)})[0]
-          assert output.shape == (1, 28)
-          assert np.isfinite(output).all()
+          import json
+          from pathlib import Path
+
+          catalog = json.loads(Path('species/north-carolina.json').read_text())
+          assert len(catalog['species']) >= 500
+          assert catalog['labels'][-1] == 'unknown'
+          assert len(catalog['labels']) == len(catalog['species']) + 1
+          assert len(set(catalog['labels'])) == len(catalog['labels'])
+          for config_path in Path('models').glob('*/config.json'):
+              config = json.loads(config_path.read_text())
+              assert all((config_path.parent / filename).is_file() for filename in config['files'])
           PY
