@@ -65,7 +65,7 @@ def download_species(metadata: dict, item, class_index: int, output: Path, per_s
             time.sleep(0.1)
         rows.append(
             {
-                "file": str(destination.relative_to(output)),
+                "file": destination.relative_to(output).as_posix(),
                 "class_index": class_index,
                 "taxon_id": item.taxon_id,
                 "scientific_name": item.scientific_name,

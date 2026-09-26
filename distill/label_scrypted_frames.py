@@ -70,7 +70,7 @@ def main() -> None:
         camera_id = camera_directory.removeprefix("scrypted-").removesuffix(".events")
         poultry_camera = camera_id in set(args.poultry_cameras)
         smoother = TemporalSmoother(args.smoothing_alpha, 0.3, 30, args.unknown_threshold)
-        split = "val" if int(hashlib.sha256(str(event.relative_to(args.frames)).encode()).hexdigest(), 16) % 5 == 0 else "train"
+        split = "val" if int(hashlib.sha256(event.relative_to(args.frames).as_posix().encode()).hexdigest(), 16) % 5 == 0 else "train"
         image_dir = args.output / "images" / split
         label_dir = args.output / "labels" / split
         image_dir.mkdir(parents=True, exist_ok=True)
@@ -107,7 +107,7 @@ def main() -> None:
                 for ((box, _), (_, label, _)) in zip(detections, smoothed)
             ]
             audit.write(json.dumps({
-                "source": str(source.relative_to(args.frames)), "split": split,
+                "source": source.relative_to(args.frames).as_posix(), "split": split,
                 "boxes": [{"xyxy": box, "label": label, "confidence": confidence}
                           for ((box, _), (_, label, confidence)) in zip(detections, smoothed)],
             }) + "\n")
@@ -115,7 +115,7 @@ def main() -> None:
             if not annotations:
                 continue
             relative = source.relative_to(args.frames)
-            stem = "scrypted-" + hashlib.sha1(str(relative).encode()).hexdigest()[:16]
+            stem = "scrypted-" + hashlib.sha1(relative.as_posix().encode()).hexdigest()[:16]
             shutil.copy2(source, image_dir / f"{stem}.jpg")
             (label_dir / f"{stem}.txt").write_text(
                 "".join(f"{index} {x:.8f} {y:.8f} {w:.8f} {h:.8f}\n" for index, x, y, w, h in annotations)

@@ -20,7 +20,7 @@ def main():
     manifest = args.source / 'attribution.csv'
     with manifest.open() as stream:
         rows = {row['file']: row for row in csv.DictReader(stream)}
-    missing = [p for p in args.source.glob('*/*.jpg') if str(p.relative_to(args.source)) not in rows]
+    missing = [p for p in args.source.glob('*/*.jpg') if p.relative_to(args.source).as_posix() not in rows]
     recovered = 0
     for offset in range(0, len(missing), 50):
         batch = missing[offset:offset + 50]
@@ -42,7 +42,7 @@ def main():
                 license_code = (photo.get('license_code') or '').lower()
                 if str(photo['id']) != photo_id or license_code not in {'cc0', 'cc-by'}:
                     continue
-                key = str(path.relative_to(args.source))
+                key = path.relative_to(args.source).as_posix()
                 rows[key] = dict(file=key, class_index=class_index, taxon_id=item.taxon_id,
                                  scientific_name=item.scientific_name, common_name=item.common_name,
                                  observation_url=f'https://www.inaturalist.org/observations/{observation_id}',

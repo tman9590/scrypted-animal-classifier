@@ -22,6 +22,25 @@ owned computers. Keep private images and review sheets out of GitHub and public
 file-sharing services. Preserve the Hugging Face cache symlinks under `work/models`.
 The transfer checksum manifest and detailed checkpoint are local under `work/transfer`.
 
+## Windows 11 (native CUDA)
+
+Use the Windows ZIP archive, which contains regular files instead of symlinks.
+Copy it through the intended private SMB share, then extract it onto a local SSD
+with at least 25 GB free. Do not train directly from the SMB network path.
+Install Python 3.11 (including the Python launcher) and a current NVIDIA driver.
+From PowerShell in the extracted project folder:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-cuda.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\resume-labeling.ps1
+```
+
+The execution-policy flag applies only to that process. Setup verifies an actual
+CUDA forward/backward operation and every transferred checkpoint file. Native
+Windows scripts have been prepared but must still be tested on the destination.
+SMB transfers files; it does not provide a remote shell. Run the commands on the
+Windows PC, or establish a remote shell to let the build be managed from the Mac.
+
 ## Resume public labeling
 
 ```sh
