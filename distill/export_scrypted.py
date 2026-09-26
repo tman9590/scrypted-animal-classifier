@@ -2,26 +2,16 @@
 from __future__ import annotations
 
 import argparse
-import json
 import shutil
 from pathlib import Path
 
 from ultralytics import YOLO
 
 from catalog import read_catalog
+from generate_configs import write_config
 
 
 ROOT = Path(__file__).parents[1]
-
-
-def write_config(directory: Path, files: list[str], labels: list[str], image_size: int) -> None:
-    config = {
-        "input_shape": [1, 3, image_size, image_size],
-        "model": "yolov9",
-        "files": files,
-        "labels": {str(index): label for index, label in enumerate(labels)},
-    }
-    (directory / "config.json").write_text(json.dumps(config, indent=2) + "\n")
 
 
 def copy_file(source: Path, destination: Path) -> None:

@@ -4,8 +4,8 @@
 
 The deployable model is a single-stage object detector for Scrypted NVR. Each
 box receives one of 529 North Carolina wildlife and poultry labels or
-`unknown`. Labels include the scientific name to prevent ambiguity between
-similar common names.
+`unknown`. Deployed labels use species-level common names. Scientific names are
+retained in the catalog and teacher prompts but are not shown in Scrypted.
 
 ## Teacher and student
 

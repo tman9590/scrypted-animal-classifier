@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -15,7 +16,7 @@ from smoothing import TemporalSmoother, iou
 class DistillationTests(unittest.TestCase):
     def test_species_labels_are_granular(self):
         item = Species(906, "Meleagris gallopavo", "Turkey", "Aves", 100)
-        self.assertEqual(item.label, "Turkey (Meleagris gallopavo)")
+        self.assertEqual(item.label, "Turkey")
 
     def test_north_carolina_catalog_is_unique_and_includes_poultry(self):
         metadata, species = read_catalog(ROOT / "species" / "north-carolina.json")
@@ -24,6 +25,8 @@ class DistillationTests(unittest.TestCase):
         self.assertEqual(metadata["region"], "North Carolina, USA")
         self.assertEqual(metadata["labels"][-1], "unknown")
         self.assertGreaterEqual(len(species), 500)
+        self.assertEqual(metadata["labels"][:-1], [item.common_name for item in species])
+        self.assertNotIn("(", "".join(metadata["labels"]))
         self.assertTrue(
             {
                 "Gallus gallus domesticus",
@@ -35,6 +38,23 @@ class DistillationTests(unittest.TestCase):
                 "Pavo cristatus",
             }.issubset(scientific_names)
         )
+
+    def test_scrypted_backend_configs_match_catalog(self):
+        metadata, _ = read_catalog(ROOT / "species" / "north-carolina.json")
+        expected_files = {
+            "coreml": [
+                "north-carolina-wildlife.mlpackage/Data/com.apple.CoreML/model.mlmodel",
+                "north-carolina-wildlife.mlpackage/Data/com.apple.CoreML/weights/weight.bin",
+                "north-carolina-wildlife.mlpackage/Manifest.json",
+            ],
+            "openvino": ["north-carolina-wildlife.xml", "north-carolina-wildlife.bin"],
+        }
+        for backend, files in expected_files.items():
+            config = json.loads((ROOT / "models" / backend / "config.json").read_text())
+            self.assertEqual(config["input_shape"], [1, 3, 640, 640])
+            self.assertEqual(config["model"], "yolov9")
+            self.assertEqual(config["files"], files)
+            self.assertEqual(list(config["labels"].values()), metadata["labels"])
 
     def test_temporal_smoothing_and_unknown_threshold(self):
         smoother = TemporalSmoother(alpha=0.5, match_iou=0.3, ttl_frames=10, unknown_threshold=0.7)

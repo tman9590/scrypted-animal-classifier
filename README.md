@@ -13,13 +13,13 @@ require a separate Scrypted plugin.
 ## Species coverage
 
 The checked-in North Carolina catalog contains **529 animal taxa plus
-`unknown`**. Every wildlife result is a species-level label containing its
-common and scientific name, for example:
+`unknown`**. Every deployed result is a concise species-level common name, for
+example:
 
 ```text
-White-tailed Deer (Odocoileus virginianus)
-Northern Cardinal (Cardinalis cardinalis)
-Domestic Chicken (Gallus gallus domesticus)
+White-tailed Deer
+Northern Cardinal
+Domestic Chicken
 ```
 
 The list includes 327 birds, 52 mammals, 61 reptiles, and 89 amphibians that
@@ -103,7 +103,9 @@ The default teacher settings are:
 
 Scrypted resolves the repository URL to `models/<backend>/config.json`. Those
 configs identify the output as YOLO-compatible and provide the complete class
-map.
+map. The CoreML and OpenVINO configs are checked in and can be regenerated from
+the catalog with `python3 distill/generate_configs.py`. Scientific names remain
+in the catalog and BioCLIP prompts but are not shown in Scrypted detections.
 
 ## Validation
 

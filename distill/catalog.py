@@ -22,9 +22,7 @@ class Species:
 
     @property
     def label(self) -> str:
-        if self.common_name.casefold() == self.scientific_name.casefold():
-            return self.scientific_name
-        return f"{self.common_name} ({self.scientific_name})"
+        return self.common_name
 
     @property
     def prompts(self) -> tuple[str, str]:
