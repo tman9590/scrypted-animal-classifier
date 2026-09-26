@@ -30,14 +30,15 @@ def write_dataset_yaml(output: Path, labels: list[str]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Pseudo-label licensed iNaturalist images with MDV6 and BioCLIP 2")
-    parser.add_argument("--catalog", type=Path, default=ROOT / "work" / "north-carolina-species.json")
+    parser.add_argument("--catalog", type=Path, default=ROOT / "species" / "north-carolina.json")
     parser.add_argument("--source", type=Path, default=ROOT / "work" / "source-images")
     parser.add_argument("--output", type=Path, default=ROOT / "work" / "yolo-dataset")
-    parser.add_argument("--megadetector", type=Path, default=ROOT / "work" / "models" / "MDV6-yolov10-c.pt")
+    parser.add_argument("--megadetector", type=Path, default=ROOT / "work" / "models" / "MDV6-yolov9-c.pt")
     parser.add_argument("--device", default="mps")
     parser.add_argument("--detection-threshold", type=float, default=0.25)
     parser.add_argument("--unknown-threshold", type=float, default=0.25)
     parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--limit", type=int, help="Limit this run to a reproducible smoke-test subset")
     args = parser.parse_args()
 
     metadata, species = read_catalog(args.catalog)
@@ -47,6 +48,8 @@ def main() -> None:
     unknown_index = len(species)
     rows = list(csv.DictReader((args.source / "attribution.csv").open()))
     random.Random(360).shuffle(rows)
+    if args.limit is not None:
+        rows = rows[:args.limit]
 
     for batch_start in range(0, len(rows), args.batch_size):
         batch = []

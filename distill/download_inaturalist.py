@@ -82,14 +82,17 @@ def download_species(metadata: dict, item, class_index: int, output: Path, per_s
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Download licensed North Carolina iNaturalist observations")
-    parser.add_argument("--catalog", type=Path, default=ROOT / "work" / "north-carolina-species.json")
+    parser.add_argument("--catalog", type=Path, default=ROOT / "species" / "north-carolina.json")
     parser.add_argument("--output", type=Path, default=ROOT / "work" / "source-images")
     parser.add_argument("--per-species", type=int, default=30)
     parser.add_argument("--workers", type=int, default=6)
     args = parser.parse_args()
     metadata, species = read_catalog(args.catalog)
     args.output.mkdir(parents=True, exist_ok=True)
-    rows = []
+    manifest = args.output / "attribution.csv"
+    rows = list(csv.DictReader(manifest.open())) if manifest.exists() else []
+    rows = {row["file"]: row for row in rows if (args.output / row["file"]).is_file()}
+    failures = []
 
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         futures = [
@@ -97,15 +100,32 @@ def main() -> None:
             for class_index, item in enumerate(species)
         ]
         for future in as_completed(futures):
-            rows.extend(future.result())
+            try:
+                recovered = future.result()
+            except Exception as error:
+                failures.append(str(error))
+                print(f"Species request failed (checkpoint retained): {error}")
+                continue
+            rows.update({row["file"]: row for row in recovered})
+            write_manifest(args.output, list(rows.values()))
 
-    rows.sort(key=lambda row: (int(row["class_index"]), row["file"]))
+    write_manifest(args.output, list(rows.values()))
+    if failures:
+        raise SystemExit(f"{len(failures)} species requests failed; rerun to retry")
 
-    with (args.output / "attribution.csv").open("w", newline="") as file:
+
+def write_manifest(output: Path, rows: list[dict]) -> None:
+    """Persist each completed species so interruptions never discard attribution."""
+    rows = sorted(rows, key=lambda row: (int(row["class_index"]), row["file"]))
+    temporary = output / "attribution.csv.tmp"
+    with temporary.open("w", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=rows[0].keys() if rows else ["file"])
         writer.writeheader()
         writer.writerows(rows)
-    (args.output / "metadata.json").write_text(json.dumps(rows, indent=2) + "\n")
+    temporary.replace(output / "attribution.csv")
+    temporary = output / "metadata.json.tmp"
+    temporary.write_text(json.dumps(rows, indent=2) + "\n")
+    temporary.replace(output / "metadata.json")
 
 
 if __name__ == "__main__":

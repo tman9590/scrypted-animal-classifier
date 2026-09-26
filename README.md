@@ -69,7 +69,7 @@ python3.11 -m venv .venv
   --catalog species/north-carolina.json \
   --per-species 20
 
-# Download MDV6-yolov10-c.pt from the official MegaDetector V6 model record
+# Download MDV6-yolov9-c.pt from the official MegaDetector V6 model record
 # into work/models/, then label public images.
 .venv/bin/python distill/label_images.py \
   --catalog species/north-carolina.json
@@ -86,6 +86,14 @@ python3.11 -m venv .venv
 .venv/bin/python distill/export_scrypted.py \
   work/training/north-carolina-wildlife/weights/best.pt
 ```
+
+The downloader preserves existing image files and atomically checkpoints attribution
+after each completed species. Rerun the same command after an interruption to
+recover missing attribution and retry failed species requests. Public images
+without recovered attribution are not used by the labeling pipeline.
+
+For a bounded teacher smoke test, run `distill/label_images.py --limit 8
+--output work/public-smoke-dataset` with the build environment's Python.
 
 The default teacher settings are:
 

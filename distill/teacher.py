@@ -32,7 +32,7 @@ class MegaDetector:
         if not images:
             return []
         results = self.model.predict(
-            [np.asarray(image.convert("RGB")) for image in images],
+            [np.asarray(image.convert("RGB"))[:, :, ::-1].copy() for image in images],
             conf=threshold,
             imgsz=1280,
             device=self.device,
