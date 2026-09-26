@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import time
 import urllib.parse
+import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -32,11 +34,19 @@ class Species:
         )
 
 
-def api_get(path: str, params: dict, opener: Callable = urllib.request.urlopen) -> dict:
+def api_get(path: str, params: dict, opener: Callable = urllib.request.urlopen, retries: int = 6) -> dict:
     url = f"{API}/{path}?{urllib.parse.urlencode(params, doseq=True)}"
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with opener(request, timeout=30) as response:
-        return json.load(response)
+    for attempt in range(retries):
+        try:
+            with opener(request, timeout=30) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as error:
+            if error.code != 429 or attempt == retries - 1:
+                raise
+            retry_after = float(error.headers.get("Retry-After") or 2 ** attempt)
+            time.sleep(min(60, retry_after))
+    raise RuntimeError("unreachable")
 
 
 def fetch_species(

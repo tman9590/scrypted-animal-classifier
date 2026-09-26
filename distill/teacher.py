@@ -24,7 +24,24 @@ class MegaDetector:
         self.device = device or None
 
     def detect(self, image: Image.Image, threshold: float) -> list[tuple[tuple[float, float, float, float], float]]:
-        result = self.model.predict(np.asarray(image.convert("RGB")), conf=threshold, imgsz=1280, device=self.device, verbose=False)[0]
+        return self.detect_many([image], threshold)[0]
+
+    def detect_many(
+        self, images: list[Image.Image], threshold: float
+    ) -> list[list[tuple[tuple[float, float, float, float], float]]]:
+        if not images:
+            return []
+        results = self.model.predict(
+            [np.asarray(image.convert("RGB")) for image in images],
+            conf=threshold,
+            imgsz=1280,
+            device=self.device,
+            verbose=False,
+        )
+        return [self._animal_boxes(result) for result in results]
+
+    @staticmethod
+    def _animal_boxes(result) -> list[tuple[tuple[float, float, float, float], float]]:
         ret = []
         for box, class_id, confidence in zip(result.boxes.xyxy.cpu(), result.boxes.cls.cpu(), result.boxes.conf.cpu()):
             if int(class_id) == 0:
@@ -52,22 +69,27 @@ class BioClipClassifier:
             features = features.reshape(len(species), 2, -1).mean(dim=1)
             self.text_features = features / features.norm(dim=-1, keepdim=True)
 
-    def classify(self, crops: list[Image.Image]) -> list[dict[str, float]]:
+    def classify(self, crops: list[Image.Image], batch_size: int = 64) -> list[dict[str, float]]:
         import torch
 
         if not crops:
             return []
-        inputs = torch.stack([self.preprocess(crop.convert("RGB")) for crop in crops]).to(self.device)
         precision = torch.autocast("cuda", dtype=torch.float16) if self.device.startswith("cuda") else nullcontext()
-        with torch.inference_mode(), precision:
-            features = self.model.encode_image(inputs)
-            features = features / features.norm(dim=-1, keepdim=True)
-            scale = self.model.logit_scale.exp().clamp(max=100)
-            probabilities = (scale * features @ self.text_features.T).softmax(dim=-1).float().cpu()
-        return [
-            {item.label: float(row[index]) for index, item in enumerate(self.species)}
-            for row in probabilities
-        ]
+        output = []
+        for offset in range(0, len(crops), batch_size):
+            inputs = torch.stack(
+                [self.preprocess(crop.convert("RGB")) for crop in crops[offset : offset + batch_size]]
+            ).to(self.device)
+            with torch.inference_mode(), precision:
+                features = self.model.encode_image(inputs)
+                features = features / features.norm(dim=-1, keepdim=True)
+                scale = self.model.logit_scale.exp().clamp(max=100)
+                probabilities = (scale * features @ self.text_features.T).softmax(dim=-1).float().cpu()
+            output.extend(
+                {item.label: float(row[index]) for index, item in enumerate(self.species)}
+                for row in probabilities
+            )
+        return output
 
 
 def crop_box(image: Image.Image, box: tuple[float, float, float, float], margin: float = 0.1) -> Image.Image:

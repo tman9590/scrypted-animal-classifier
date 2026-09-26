@@ -77,6 +77,10 @@ python3.11 -m venv .venv
 # Add representative camera clips. This path performs temporal smoothing.
 .venv/bin/python distill/label_videos.py /path/to/camera-clips
 
+# Scrypted NVR event-frame exports can be added directly. Consecutive frames in
+# each event directory use the same temporal smoothing and unknown threshold.
+.venv/bin/python distill/label_scrypted_frames.py /path/to/scrypted-event-frames
+
 # Train and export the deployable single-stage model.
 .venv/bin/python distill/train_student.py
 .venv/bin/python distill/export_scrypted.py \
@@ -90,6 +94,11 @@ The default teacher settings are:
 - New-frame smoothing weight: `0.35`
 - Track association IoU: `0.30`
 - Student: YOLO11 Small at `640 × 640`
+
+The Scrypted frame importer can restrict known coop feeds to the configured
+poultry species. This prevents infrared chicken imagery from being assigned to
+visually similar wild birds while leaving other cameras on the full regional
+species list.
 
 ## Add the exported model to Scrypted
 
