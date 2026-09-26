@@ -1,0 +1,8 @@
+coremltools==9.0
+ncnn==1.0.20260526
+onnx==1.19.1
+onnxruntime==1.19.2
+openvino==2025.3.0
+pnnx==20260526
+torch==2.8.0
+torchvision==0.23.0

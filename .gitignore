@@ -1,3 +1,5 @@
 .venv/
 *.pnnx.*
 model.pt
+__pycache__/
+*.pyc
